@@ -14,6 +14,13 @@ locals {
     acr       = "privatelink.azurecr.io"
     key_vault = "privatelink.vaultcore.azure.net"
   }
+
+  # Keyed the same as the NSGs above, so the association resource can look up the right
+  # subnet for each NSG by for_each key.
+  subnet_ids = {
+    aks_nodes         = azurerm_subnet.aks_nodes.id
+    private_endpoints = azurerm_subnet.private_endpoints.id
+  }
 }
 
 resource "azurerm_virtual_network" "this" {
@@ -51,8 +58,10 @@ resource "azurerm_subnet" "private_endpoints" {
 # configuration instead of only in the portal.
 # ---------------------------------------------------------------------------------------
 
-resource "azurerm_network_security_group" "aks_nodes" {
-  name                = "${var.environment}-aks-nodes-nsg"
+resource "azurerm_network_security_group" "this" {
+  for_each = toset(["aks_nodes", "private_endpoints"])
+
+  name                = "${var.environment}-${replace(each.key, "_", "-")}-nsg"
   location            = var.location
   resource_group_name = var.resource_group_name
 
@@ -83,51 +92,16 @@ resource "azurerm_network_security_group" "aks_nodes" {
   tags = local.tags
 }
 
-resource "azurerm_network_security_group" "private_endpoints" {
-  name                = "${var.environment}-private-endpoints-nsg"
-  location            = var.location
-  resource_group_name = var.resource_group_name
+resource "azurerm_subnet_network_security_group_association" "this" {
+  for_each = azurerm_network_security_group.this
 
-  security_rule {
-    name                       = "allow-vnet-inbound"
-    priority                   = 100
-    direction                  = "Inbound"
-    access                     = "Allow"
-    protocol                   = "*"
-    source_port_range          = "*"
-    destination_port_range     = "*"
-    source_address_prefix      = "VirtualNetwork"
-    destination_address_prefix = "VirtualNetwork"
-  }
-
-  security_rule {
-    name                       = "deny-internet-inbound"
-    priority                   = 4000
-    direction                  = "Inbound"
-    access                     = "Deny"
-    protocol                   = "*"
-    source_port_range          = "*"
-    destination_port_range     = "*"
-    source_address_prefix      = "Internet"
-    destination_address_prefix = "*"
-  }
-
-  tags = local.tags
-}
-
-resource "azurerm_subnet_network_security_group_association" "aks_nodes" {
-  subnet_id                 = azurerm_subnet.aks_nodes.id
-  network_security_group_id = azurerm_network_security_group.aks_nodes.id
-}
-
-resource "azurerm_subnet_network_security_group_association" "private_endpoints" {
-  subnet_id                 = azurerm_subnet.private_endpoints.id
-  network_security_group_id = azurerm_network_security_group.private_endpoints.id
+  subnet_id                 = local.subnet_ids[each.key]
+  network_security_group_id = each.value.id
 }
 
 resource "azurerm_monitor_diagnostic_setting" "aks_nodes_nsg" {
   name                       = "to-workspace"
-  target_resource_id         = azurerm_network_security_group.aks_nodes.id
+  target_resource_id         = azurerm_network_security_group.this["aks_nodes"].id
   log_analytics_workspace_id = var.workspace_id
 
   enabled_log {

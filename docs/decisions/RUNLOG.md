@@ -55,3 +55,22 @@ upstream.
 $ git rev-list --count 7a98b44..HEAD   -> 1
 $ git status -sb                       -> no upstream tracking branch
 ```
+
+**Intent.** Collapse the two identical `azurerm_network_security_group` resources in
+`modules/network` (`aks_nodes`, `private_endpoints` — same two rules, same tags) and their
+matching `azurerm_subnet_network_security_group_association` resources into one `for_each`
+each, following an overengineering audit. Resource names are unchanged; only the state
+address moves from a fixed label to a `for_each` key, which is safe pre-apply.
+
+**Verified — formatting is clean and all three layers still validate.**
+
+```
+$ terraform fmt -recursive -check -diff
+  (no output, exit 0)
+$ terraform -chdir=layers/0-foundation init -backend=false && terraform -chdir=layers/0-foundation validate
+  Success! The configuration is valid.
+$ terraform -chdir=layers/1-network init -backend=false && terraform -chdir=layers/1-network validate
+  Success! The configuration is valid.
+$ terraform -chdir=layers/2-cluster init -backend=false && terraform -chdir=layers/2-cluster validate
+  Success! The configuration is valid.
+```
