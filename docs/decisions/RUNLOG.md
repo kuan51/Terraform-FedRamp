@@ -74,3 +74,32 @@ $ terraform -chdir=layers/1-network init -backend=false && terraform -chdir=laye
 $ terraform -chdir=layers/2-cluster init -backend=false && terraform -chdir=layers/2-cluster validate
   Success! The configuration is valid.
 ```
+
+**Intent.** Reconcile the 16 checkov failures from CI run 33280860432 on PR #1 (the gate is
+`soft_fail: false`, so the branch cannot merge red). Fix in code what the posture actually
+wants — the Key Vault network lockdown and its layer-2 private endpoint (D-013), ACR dedicated
+data endpoints, zone redundancy and untagged-manifest retention, AKS
+`automatic_upgrade_channel` and `max_pods` — and record the other nine as inline
+`checkov:skip` entries, each with its reason at the resource (D-014). Add a
+`kubernetes_version` validation, since the patch upgrade channel makes the major.minor format
+load-bearing.
+
+**Verified — formatting is clean and all three layers validate after the hardening.**
+
+```
+$ terraform fmt -recursive -check -diff
+  (no output, exit 0)
+$ terraform -chdir=layers/0-foundation init -backend=false && terraform -chdir=layers/0-foundation validate
+  Success! The configuration is valid.
+$ terraform -chdir=layers/1-network init -backend=false && terraform -chdir=layers/1-network validate
+  Success! The configuration is valid.
+$ terraform -chdir=layers/2-cluster init -backend=false && terraform -chdir=layers/2-cluster validate
+  Success! The configuration is valid.
+```
+
+**Not verified locally — checkov.** checkov is not installed on this machine and installing it
+is out of scope, so the scanner itself did not run here. The seven code-fixed checks were
+instead verified against the check implementations at bridgecrewio/checkov master (commit
+`2137e91a`) — each inspects exactly the argument the fix sets — and the inline skip placement
+matches the comment parser's contract (a `checkov:skip=` line strictly inside the resource
+block). The authoritative verdict is the CI run on this push.

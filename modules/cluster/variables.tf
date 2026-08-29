@@ -48,14 +48,24 @@ variable "acr_private_dns_zone_id" {
   type        = string
 }
 
+variable "key_vault_private_dns_zone_id" {
+  description = "Private DNS zone for privatelink.vaultcore.azure.net, so vault lookups from inside the VNet resolve to the private endpoint."
+  type        = string
+}
+
 variable "dns_zone_id" {
   description = "Public DNS zone the certificate issuer identity is granted DNS Zone Contributor on, so it can solve DNS-01 challenges."
   type        = string
 }
 
 variable "kubernetes_version" {
-  description = "Kubernetes minor version for the cluster."
+  description = "Kubernetes version as major.minor only. automatic_upgrade_channel is \"patch\", so the auto-upgrader owns the patch digit; pinning one here would fight it."
   type        = string
+
+  validation {
+    condition     = can(regex("^\\d+\\.\\d+$", var.kubernetes_version))
+    error_message = "kubernetes_version must be major.minor (e.g. \"1.31\"), never a full patch version -- the patch digit is managed by automatic_upgrade_channel."
+  }
 }
 
 variable "sku_tier" {

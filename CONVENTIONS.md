@@ -27,7 +27,7 @@ them except explicitly declared outputs.
 |---|---|---|
 | `0-foundation` | Resource groups, Log Analytics workspace with Sentinel, Key Vault, action group, budget, Activity Log export | Subscription Owner |
 | `1-network` | VNet, subnets, NSGs, public DNS zone, private DNS zones, optional NAT gateway | Subscription Owner |
-| `2-cluster` | AKS, container registry with private endpoint, workload identity, role assignments | Subscription Owner |
+| `2-cluster` | AKS, container registry and key vault private endpoints, workload identity, role assignments | Subscription Owner |
 | `3-governance` | FedRAMP Moderate policy initiative, AKS admission control, Defender plans | Subscription Owner |
 | `4-identity` | Entra ID sign-in and audit log export (tenant scope) | **Entra administrator** |
 | `5-workload` | open-balena, network policies, ingress, certificates | Subscription Owner |
@@ -128,7 +128,7 @@ listed is a bug in one table or the other.
 | Layer | Consumes |
 |---|---|
 | `1-network` | from `0`: `location`, `resource_group_names.platform`, `workspace_id` |
-| `2-cluster` | from `0`: `location`, `resource_group_names.platform`, `workspace_id`, `key_vault_id`<br>from `1`: `subnet_ids.aks_nodes`, `subnet_ids.private_endpoints`, `private_dns_zone_ids.acr`, `dns_zone_id` |
+| `2-cluster` | from `0`: `location`, `resource_group_names.platform`, `workspace_id`, `key_vault_id`<br>from `1`: `subnet_ids.aks_nodes`, `subnet_ids.private_endpoints`, `private_dns_zone_ids.acr`, `private_dns_zone_ids.key_vault`, `dns_zone_id` |
 
 `dns_zone_name` and `vnet_id` are published but not yet consumed — `5-workload` will need
 both. They are forward-looking, not dead.

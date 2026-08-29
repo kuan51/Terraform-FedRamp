@@ -220,3 +220,43 @@ production posture is the one nobody exercises before an audit.
 **Kept in step.** The code, the `environments/production.yaml` comment, and CONVENTIONS.md all
 state this same rule, because in a repository whose value is that its documentation matches its
 configuration, a disagreement between them is worse than any one of them being wrong.
+
+---
+
+## D-013 — Key Vault data plane goes private
+
+**Date:** 2026-08-29
+
+Public network access on the Key Vault is disabled and its `network_acls` default to Deny, so
+the data plane is reachable only through a private endpoint created in `2-cluster` (using the
+`privatelink.vaultcore.azure.net` zone `1-network` already provisioned) — with one recorded
+exception: `bypass = "AzureServices"` keeps Azure's trusted services able to reach the data
+plane, an assessor-visible boundary exception accepted over the operational breakage
+`bypass = "None"` invites. The vault is created in layer 0 before the VNet exists, so there is
+a window across the phased first apply in which it cannot be reached — accepted, because
+nothing writes a secret until the cluster layer is up. **Rejected: leaving public access on
+with RBAC as the only boundary**, which kept an internet-reachable data plane inside the
+FedRAMP boundary for no operational gain.
+
+**Accepted cost.** Operators can manage secrets only from inside the VNet (or a future
+peering/VPN); that is a runbook consequence, deliberately chosen.
+
+---
+
+## D-014 — The checkov gate is reconciled by fixing or recording, never soft-failing
+
+**Date:** 2026-08-29
+
+CI's checkov step (`soft_fail: false`) failed 16 checks on the initial scaffold: seven were
+fixed in code (the D-013 vault lockdown, AKS `automatic_upgrade_channel` and `max_pods`, ACR
+dedicated data endpoints, zone redundancy, and untagged-manifest retention) and nine remain as
+inline `checkov:skip` entries, each carrying its reason at the resource it applies to. The
+skips fall into three groups: cost-gated demo shape per D-005 (geo-replication, a dedicated
+user node pool, ephemeral OS disks on B2s sizing), design choices this repository documents
+(an authorized-IP API server rather than a private cluster, platform-managed disk keys), and
+checks that cannot be satisfied or verified from here (the vault private-endpoint graph check
+cannot cross layer roots, content trust is deprecated, quarantine is a preview needing an
+approval workflow that does not exist, and encryption-at-host support is per-SKU and
+unverifiable before a subscription exists). **Rejected: `soft_fail: true`**, which keeps
+CI green by making the scanner advisory — a skip with a written reason is reviewable, while a
+scanner nobody must read is decoration.

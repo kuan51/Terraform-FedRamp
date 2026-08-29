@@ -48,18 +48,29 @@ resource "azurerm_sentinel_log_analytics_workspace_onboarding" "this" {
 # ---------------------------------------------------------------------------------------
 # Key Vault. RBAC authorization rather than access policies so vault access is governed by
 # the same Entra role assignments as everything else, and lands in the same audit trail.
+# Public network access is off: the data plane is reachable only through the private
+# endpoint 2-cluster creates once the VNet exists, plus the AzureServices trusted-services
+# bypass — a recorded boundary exception. Until the endpoint exists the vault holds
+# nothing, so the unreachable window across the phased first apply costs nothing. See D-013.
 # ---------------------------------------------------------------------------------------
 
 resource "azurerm_key_vault" "this" {
+  #checkov:skip=CKV2_AZURE_32:The vault's private endpoint lives in layers/2-cluster, a separate Terraform root; checkov's graph cannot follow the terraform_remote_state handoff between roots (D-013)
   name                = "${var.name_prefix}-${var.environment}-kv"
   location            = var.location
   resource_group_name = azurerm_resource_group.security.name
   tenant_id           = var.tenant_id
   sku_name            = "standard"
 
-  rbac_authorization_enabled = true
-  purge_protection_enabled   = true
-  soft_delete_retention_days = 90
+  rbac_authorization_enabled    = true
+  purge_protection_enabled      = true
+  soft_delete_retention_days    = 90
+  public_network_access_enabled = false
+
+  network_acls {
+    default_action = "Deny"
+    bypass         = "AzureServices"
+  }
 
   tags = local.tags
 }

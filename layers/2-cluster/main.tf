@@ -1,7 +1,8 @@
 # Layer 2: Cluster
 #
-# The container registry and its private endpoint, the AKS cluster, the certificate issuer
-# workload identity, and the role assignments that replace stored credentials.
+# The container registry and its private endpoint, the key vault's private endpoint, the
+# AKS cluster, the certificate issuer workload identity, and the role assignments that
+# replace stored credentials.
 #
 # Applied with subscription Owner, after 0-foundation and 1-network.
 
@@ -44,10 +45,11 @@ module "cluster" {
   workspace_id        = data.terraform_remote_state.foundation.outputs.workspace_id
   key_vault_id        = data.terraform_remote_state.foundation.outputs.key_vault_id
 
-  subnet_id                  = data.terraform_remote_state.network.outputs.subnet_ids.aks_nodes
-  private_endpoint_subnet_id = data.terraform_remote_state.network.outputs.subnet_ids.private_endpoints
-  acr_private_dns_zone_id    = data.terraform_remote_state.network.outputs.private_dns_zone_ids.acr
-  dns_zone_id                = data.terraform_remote_state.network.outputs.dns_zone_id
+  subnet_id                     = data.terraform_remote_state.network.outputs.subnet_ids.aks_nodes
+  private_endpoint_subnet_id    = data.terraform_remote_state.network.outputs.subnet_ids.private_endpoints
+  acr_private_dns_zone_id       = data.terraform_remote_state.network.outputs.private_dns_zone_ids.acr
+  key_vault_private_dns_zone_id = data.terraform_remote_state.network.outputs.private_dns_zone_ids.key_vault
+  dns_zone_id                   = data.terraform_remote_state.network.outputs.dns_zone_id
 
   name_prefix = local.config.name_prefix
   tenant_id   = data.azurerm_client_config.current.tenant_id

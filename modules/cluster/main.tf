@@ -1,6 +1,6 @@
-# Layer 2 resources: the container registry and its private endpoint, the AKS cluster, the
-# workload identity the certificate issuer uses, and the role assignments and diagnostic
-# settings that tie them to the foundation.
+# Layer 2 resources: the container registry and its private endpoint, the key vault's
+# private endpoint, the AKS cluster, the workload identity the certificate issuer uses,
+# and the role assignments and diagnostic settings that tie them to the foundation.
 
 locals {
   tags = merge(var.tags, {
@@ -21,6 +21,9 @@ locals {
 # ---------------------------------------------------------------------------------------
 
 resource "azurerm_container_registry" "this" {
+  #checkov:skip=CKV_AZURE_164:Content trust is the deprecated Docker Content Trust mechanism; image integrity evidence comes from Defender for Containers scanning (D-014)
+  #checkov:skip=CKV_AZURE_165:Geo-replication bills a full Premium registry fee per replica region; the demo posture is single-region (D-005, D-014)
+  #checkov:skip=CKV_AZURE_166:Quarantine is a preview feature that holds every image unpullable until an approval workflow releases it, and no such workflow exists here (D-014)
   name                = "${var.name_prefix}${var.environment}acr"
   location            = var.location
   resource_group_name = var.resource_group_name
@@ -28,6 +31,12 @@ resource "azurerm_container_registry" "this" {
 
   admin_enabled                 = false
   public_network_access_enabled = false
+  data_endpoint_enabled         = true
+  zone_redundancy_enabled       = true
+
+  # Untagged manifests are rebuild leftovers reachable only by digest. A week is long
+  # enough to notice one still in use and short enough that they do not accumulate.
+  retention_policy_in_days = 7
 
   tags = local.tags
 }
@@ -48,6 +57,29 @@ resource "azurerm_private_endpoint" "acr" {
   private_dns_zone_group {
     name                 = "acr"
     private_dns_zone_ids = [var.acr_private_dns_zone_id]
+  }
+
+  tags = local.tags
+}
+
+# The Key Vault is created in layer 0 with public network access off, before the VNet
+# exists. This endpoint is what makes its data plane reachable again. See D-013.
+resource "azurerm_private_endpoint" "key_vault" {
+  name                = "${var.environment}-kv-pe"
+  location            = var.location
+  resource_group_name = var.resource_group_name
+  subnet_id           = var.private_endpoint_subnet_id
+
+  private_service_connection {
+    name                           = "key-vault"
+    private_connection_resource_id = var.key_vault_id
+    subresource_names              = ["vault"]
+    is_manual_connection           = false
+  }
+
+  private_dns_zone_group {
+    name                 = "key-vault"
+    private_dns_zone_ids = [var.key_vault_private_dns_zone_id]
   }
 
   tags = local.tags
@@ -76,6 +108,11 @@ resource "azurerm_monitor_diagnostic_setting" "acr" {
 # ---------------------------------------------------------------------------------------
 
 resource "azurerm_kubernetes_cluster" "this" {
+  #checkov:skip=CKV_AZURE_115:The design is a public endpoint behind api_server_authorized_ip_ranges, not a private cluster -- see the variable description and environments/production.yaml (D-014)
+  #checkov:skip=CKV_AZURE_117:OS disks stay on platform-managed keys; a customer-managed disk encryption set is out of demo scope (D-014)
+  #checkov:skip=CKV_AZURE_226:Ephemeral OS disks need local or cache storage the demo Standard_B2s size does not have; VM sizing is a cost gate (D-005, D-014)
+  #checkov:skip=CKV_AZURE_227:Encryption-at-host support is per-SKU and needs the EncryptionAtHost subscription feature; neither is checkable before a subscription exists (D-014)
+  #checkov:skip=CKV_AZURE_232:One system pool is the demo shape; CriticalAddonsOnly with no user pool would leave workloads unschedulable (D-005, D-014)
   name                = "${var.environment}-aks"
   location            = var.location
   resource_group_name = var.resource_group_name
@@ -89,12 +126,21 @@ resource "azurerm_kubernetes_cluster" "this" {
   workload_identity_enabled         = true
   azure_policy_enabled              = true
 
+  # Patch releases inside the pinned minor apply automatically; the minor itself moves
+  # only by a config edit. CVE patch latency stays out of operator hands without
+  # surprise version jumps.
+  automatic_upgrade_channel = "patch"
+
   default_node_pool {
     name           = "system"
     vm_size        = var.system_pool.vm_size
     node_count     = var.system_pool.node_count
     zones          = var.availability_zones
     vnet_subnet_id = var.subnet_id
+
+    # Azure CNI reserves a subnet IP per pod up to this cap. The provider default of 30
+    # is easy to exhaust with daemonsets on a two-node pool; 50 fits easily in the /22.
+    max_pods = 50
 
     upgrade_settings {
       max_surge = "10%"
