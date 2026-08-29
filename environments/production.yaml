@@ -1,0 +1,87 @@
+# Production environment definition.
+#
+# This file is the single source of environment-specific values. Layer roots read it with
+# yamldecode() and pass fields into their module; NO VALUE IS HARDCODED AT A MODULE CALL
+# SITE. Changing the domain, the region, or any cost gate is an edit here and nowhere else.
+
+# Must be a US region: only US public regions are in scope for Azure Commercial's FedRAMP
+# High P-ATO. A non-US region silently voids the inheritance the whole SSP rests on.
+region: eastus2
+
+# Filled on subscription purchase. Every layer's provider config reads this one key, so
+# purchase day is a one-line edit rather than six files. `terraform validate` passes
+# without it; only `plan` and `apply` need a real value.
+subscription: "<fill-on-purchase>"
+
+# Prefix for globally-unique resource names (storage, key vault, ACR). Keep it short: these
+# names are built as {prefix}-{environment}-kv and {prefix}{environment}acr, and Key Vault
+# caps at 24 characters while a registry name allows no hyphens at all.
+name_prefix: fedramp
+
+tags:
+  # Base tags applied to everything. Project/classification tags are added inside
+  # modules/foundation so no caller can omit them.
+  environment: production
+  system: medical-c2
+  data-classification: fedramp-moderate
+
+dns:
+  # Delegated subdomain. The registrar zone stays where it is; only these four NS records
+  # move. Documentation uses <your-domain> as a placeholder -- this file is the only place
+  # the literal domain appears.
+  zone: security.kuan.dev
+
+state:
+  # Coordinates of the Terraform state account, created by the state-bootstrap runbook and
+  # tracked in no state file. Layers reference these when reading each other via
+  # terraform_remote_state. Each layer commits its own envs/{env}/backend.hcl as well --
+  # Terraform requires backend config to be static, so it cannot come from this file.
+  resource_group: fedramp-tfstate
+  storage_account: fedrampprodtfstate
+
+network:
+  # Fresh allocation for this repo, unrelated to any other estate.
+  vnet_cidr: "10.50.0.0/16"
+  subnets:
+    aks_nodes: "10.50.0.0/22"
+    private_endpoints: "10.50.4.0/24"
+
+cluster:
+  # DEMO DEFAULTS. The production posture is sku_tier Standard with 3 nodes across 3 zones.
+  # This deviation is deliberate, priced, and recorded in docs/decisions/DECISIONS.md --
+  # it does NOT meet the availability posture a High categorization would imply.
+  sku_tier: Free                # Standard adds the uptime SLA (~$73/mo)
+  kubernetes_version: "1.31"
+  # node_count must be an exact multiple of the zone count: AKS spreads nodes round-robin,
+  # so any other ratio distributes them unevenly. Enforced by a precondition in the module.
+  availability_zones: ["1"]     # production: ["1","2","3"] with node_count 3
+  system_pool:
+    vm_size: Standard_B2s
+    node_count: 2
+  nat_gateway_enabled: false    # ~$32/mo plus data processing
+  # Empty list means the API server is open to all source IPs. Populate before any real
+  # apply; an empty allow-list is a finding, not a default.
+  api_server_authorized_ip_ranges: []
+  # Entra group object IDs granted cluster-admin. Local accounts are DISABLED, so an empty
+  # list means nobody can administer the cluster. Populate before any real apply.
+  admin_group_object_ids: []
+
+workspace:
+  retention_days: 90            # 90 days interactive is the no-cost default
+  # Hard ingestion cap. Once hit, audit data is DROPPED -- that is an AU-4/AU-5 gap,
+  # accepted for a demo and recorded in DECISIONS rather than left silent here.
+  daily_quota_gb: 1
+
+defender:
+  containers_enabled: true      # ON -- image scan findings are the evidence story
+  servers_enabled: false        # bills per resource
+
+budget:
+  enabled: true
+  ceiling: 50                   # USD/month; matches the demo cost target
+  tripwire: 25                  # early warning at half
+  start_date: "2026-09-01T00:00:00Z"
+  contacts:
+    # Fill before apply. This repository is intended to be public -- use a role or project
+    # address, not a personal one.
+    - <fill-on-purchase>
