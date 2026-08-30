@@ -1,0 +1,71 @@
+name: terraform
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: fmt, validate, lint, scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+
+      - name: terraform fmt
+        run: terraform fmt -recursive -check -diff
+
+      # Layers are discovered rather than listed, so adding a layer does not require
+      # editing this workflow. -backend=false is required: there is no state account
+      # reachable from CI, and CI has no business authenticating to one if there were.
+      - name: terraform validate
+        run: |
+          set -euo pipefail
+          failed=0
+          for layer in layers/*/; do
+            echo "::group::${layer}"
+            if terraform -chdir="${layer}" init -backend=false -no-color \
+               && terraform -chdir="${layer}" validate -no-color; then
+              echo "ok"
+            else
+              echo "::error title=validate failed::${layer}"
+              failed=1
+            fi
+            echo "::endgroup::"
+          done
+          exit "${failed}"
+
+      - name: tflint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: latest
+
+      # --recursive rather than a per-directory loop: tflint initialises plugins per
+      # working directory, and module directories have no provider configuration of their
+      # own, so looping over them errors instead of linting them.
+      - name: tflint run
+        run: |
+          set -euo pipefail
+          tflint --init
+          tflint --recursive
+
+      - name: checkov
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: .
+          framework: terraform
+          quiet: true
+          # Fails the build on findings, deliberately. Any check suppressed later must have
+          # a corresponding entry in docs/decisions/DECISIONS.md -- a suppression without a
+          # recorded reason is a finding hidden, not a finding handled.
+          soft_fail: false
